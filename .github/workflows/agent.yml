@@ -2,6 +2,7 @@ name: agent
 on:
   issues:
     types: [opened, edited, labeled]
+
 permissions:
   contents: write
   pull-requests: write
