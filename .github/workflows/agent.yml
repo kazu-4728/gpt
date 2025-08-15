@@ -2,6 +2,7 @@ name: agent
 on:
   issues:
     types: [opened, edited, labeled]
+  workflow_dispatch: {}          # ← 手動起動を追加（ActionsからRunできる）
 
 permissions:
   contents: write
@@ -11,26 +12,40 @@ permissions:
 jobs:
   intake:
     if: |
-      github.event_name == 'issues' && (
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'issues' && (
         (github.event.action == 'labeled' && github.event.label.name == 'agent') ||
-        contains(github.event.issue.body, '目的:') ||
-        contains(github.event.issue.body, '目的：')
-      )
+        contains(github.event.issue.body, '目的:') || contains(github.event.issue.body, '目的：')
+      ))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Extract purpose
         id: parse
         shell: bash
         run: |
-          BODY=$(printf "%s" "${{ github.event.issue.body }}" | sed 's/\r//g')
-          PURPOSE=$(printf "%s\n" "$BODY" \
+          BODY_RAW="${{ github.event.issue.body }}"
+          BODY="$(printf "%s" "$BODY_RAW" | sed 's/\r//g')"
+          PURPOSE="$(printf "%s\n" "$BODY" \
             | grep -m1 -E '^[[:space:]]*目的[:：][[:space:]]*' \
-            | sed -E 's/^[[:space:]]*目的[:：][[:space:]]*//')
-          echo "purpose=${PURPOSE:-未記入}" >> $GITHUB_OUTPUT
-          SLUG=$(echo "${PURPOSE:-purpose}" | tr -cd '[:alnum:]- _' | tr ' A-Z' '-a-z' | cut -c1-40)
-          echo "branch=agent/$(date +%Y%m%d-%H%M)-${SLUG}" >> $GITHUB_OUTPUT
+            | sed -E 's/^[[:space:]]*目的[:：][[:space:]]*//')"
+          [ -n "$PURPOSE" ] || PURPOSE="未記入"
+          # ブランチ用に安全なスラッグ化（英数とハイフンのみ、先頭末尾をトリム）
+          SLUG="$(printf "%s" "$PURPOSE" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-')"
+          SLUG="${SLUG:-purpose}"
+          SLUG="${SLUG%%-}"; SLUG="${SLUG##-}"
+          echo "purpose=$PURPOSE" >> $GITHUB_OUTPUT
+          echo "branch=agent/$(date +%Y%m%d-%H%M)-$SLUG" >> $GITHUB_OUTPUT
+
+      - name: Debug context
+        run: |
+          echo "PURPOSE=${{ steps.parse.outputs.purpose }}"
+          echo "BRANCH=${{ steps.parse.outputs.branch }}"
+          echo "GIT_STATUS_BEFORE:"
+          git status --porcelain
 
       - name: Scaffold files
         run: |
@@ -50,14 +65,11 @@ EOF
           cat > PRFAQ_1pager.md <<'EOF'
 # プレスリリース（1行PR）
 （140字PR）
-
 ## ストーリー（30秒ピッチ）
 （ユーザーの一日がどう変わるか）
-
 ## FAQ（6）
 Q1 なぜ今？ / Q2 既存との差 / Q3 1分で終わる理由
 Q4 何を削った？ / Q5 失敗時は？ / Q6 成功の測り方
-
 ## TASTEスコア
 T1__ / T2__ / T3__ / T4__ / T5__ / T6__  （合計 __ / 18）
 EOF
@@ -80,6 +92,8 @@ EOF
 1) PRFAQを埋める / TASTE≥13 なら進行
 2) Goなら次の実装ブロックを起票
 EOF
+          echo "GIT_STATUS_AFTER:"
+          git status --porcelain
 
       - name: Create Draft PR
         id: cpr
@@ -93,3 +107,8 @@ EOF
             生成: TASTE.md / PRFAQ_1pager.md / DECISION_MEMO.md / next_actions_v1.md
             流れ: TASTE採点→PRFAQ→D-12（12分決裁）
           draft: true
+          add-paths: |          # ← “変更なし”でも検出させるため明示
+            TASTE.md
+            PRFAQ_1pager.md
+            DECISION_MEMO.md
+            next_actions_v1.md
