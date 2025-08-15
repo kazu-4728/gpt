@@ -1,0 +1,94 @@
+name: agent
+on:
+  issues:
+    types: [opened, edited, labeled]
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  intake:
+    if: |
+      github.event_name == 'issues' && (
+        (github.event.action == 'labeled' && github.event.label.name == 'agent') ||
+        contains(github.event.issue.body, '目的:') ||
+        contains(github.event.issue.body, '目的：')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract purpose
+        id: parse
+        shell: bash
+        run: |
+          BODY=$(printf "%s" "${{ github.event.issue.body }}" | sed 's/\r//g')
+          PURPOSE=$(printf "%s\n" "$BODY" \
+            | grep -m1 -E '^[[:space:]]*目的[:：][[:space:]]*' \
+            | sed -E 's/^[[:space:]]*目的[:：][[:space:]]*//')
+          echo "purpose=${PURPOSE:-未記入}" >> $GITHUB_OUTPUT
+          SLUG=$(echo "${PURPOSE:-purpose}" | tr -cd '[:alnum:]- _' | tr ' A-Z' '-a-z' | cut -c1-40)
+          echo "branch=agent/$(date +%Y%m%d-%H%M)-${SLUG}" >> $GITHUB_OUTPUT
+
+      - name: Scaffold files
+        run: |
+          cat > TASTE.md <<'EOF'
+# TASTE（判断基準）
+- T1: 極端な単純さ（0–3）
+- T2: 1分完了（0–3）
+- T3: 迷いゼロ（0–3）
+- T4: 言い訳禁止（0–3）
+- T5: 待ち時間ゼロ（0–3）
+- T6: 物語性（0–3）
+## ルール
+- 合計 < 13 → 自動却下
+- 合計 ≥ 13 → PRFAQへ
+EOF
+
+          cat > PRFAQ_1pager.md <<'EOF'
+# プレスリリース（1行PR）
+（140字PR）
+
+## ストーリー（30秒ピッチ）
+（ユーザーの一日がどう変わるか）
+
+## FAQ（6）
+Q1 なぜ今？ / Q2 既存との差 / Q3 1分で終わる理由
+Q4 何を削った？ / Q5 失敗時は？ / Q6 成功の測り方
+
+## TASTEスコア
+T1__ / T2__ / T3__ / T4__ / T5__ / T6__  （合計 __ / 18）
+EOF
+
+          cat > DECISION_MEMO.md <<'EOF'
+# 決裁メモ（1枚）
+- 推奨: {A/B/C→1つ}  理由: {一行}
+- 代替: {次点}  捨てた理由: {一行}
+- 失敗プリモーテム: {最悪の未来像 一行}
+- Kill条件: {撤退トリガ例: NPS<0 / 7日継続<15%}
+- 爆風半径: {顧客/運用/法務}
+- 次のデモ日: {日付}
+EOF
+
+          cat > next_actions_v1.md <<EOF
+# next_actions_v1.md
+## 結論
+「${{ steps.parse.outputs.purpose }}」を自動スキャフォールドし、Draft PRで合議→D-12で決裁。
+## 手順（このPRでやること）
+1) PRFAQを埋める / TASTE≥13 なら進行
+2) Goなら次の実装ブロックを起票
+EOF
+
+      - name: Create Draft PR
+        id: cpr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "agent: scaffold for ${{ steps.parse.outputs.purpose }}"
+          branch: ${{ steps.parse.outputs.branch }}
+          title: "agent: ${{ steps.parse.outputs.purpose }}"
+          body: |
+            目的: **${{ steps.parse.outputs.purpose }}**
+            生成: TASTE.md / PRFAQ_1pager.md / DECISION_MEMO.md / next_actions_v1.md
+            流れ: TASTE採点→PRFAQ→D-12（12分決裁）
+          draft: true
