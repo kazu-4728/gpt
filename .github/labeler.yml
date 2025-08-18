@@ -1,0 +1,4 @@
+docs:
+  - '**/*.md'
+ci:
+  - '.github/workflows/**'
