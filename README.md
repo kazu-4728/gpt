@@ -1,4 +1,20 @@
 # agent_runbook_v1.md（運用手引き・図解付き）
+## 最短手順（3行）
+1. Issueに `目的:` を1行 → 自動で Draft PR が生成  
+2. PRで `/slides` → Actions の Artifacts に **slides.pdf / slides.html**  
+3. `content/hello.md` を追加 → PRで `/site` → **docs/site/** に静的HTML
+
+## 使い方（ChatOps）
+- `/slides`：PR内の `PRFAQ_1pager.md`（なければ `next_actions_v1.md`）を Marp でスライド化
+- `/site [dir]`：Markdownから簡易サイトを生成（既定は `content/`）
+- `/thumb <md|png>`：OG画像（1200×630）と各解像度サムネを生成
+- `/go`：ドラフト解除／`/kill`：PRクローズ
+
+## トラブル時チェック
+- Settings → Actions → General → **Workflow permissions: Read & write**  
+  ＆ **Allow Actions to create and approve pull requests** が ON  
+- コメントの先頭が `/slides` など **スラッシュ**で始まっているか  
+- 実行者が `OWNER`/`MEMBER` か（外部コラボだと動かない設定）
 
 ## PCFミニ
 目的: Issueの「目的: ～」1行から草案PR（雛形4点）を毎回自動生成し、判断負荷を軽減する  
@@ -140,3 +156,24 @@ PR作成で失敗	PR権限がRead-only	Settings→Actions→Read & write＋Allow
 3) 上の**全文を貼り付け** → **Commit**（または Draft PR に追加）
 
 必要なら、この**Runbook**をもとに `/slides` などの**追加ワークフローの全文**も即出します。
+
+---
+
+## ChatOps quick start
+1. PRコメント `/slides` → PRFAQ_1pager.md から slides.pdf / slides.html を生成（Artifacts）
+2. PRコメント `/site` → content/*.md を静的HTML化して docs/site/ にコミット
+3. PRコメント `/thumb content/hello.md` → OG画像と各サイズサムネを生成
+
+### Troubleshooting
+|症状|対処|
+|---|---|
+|Artifactが出ない|コメントが最新か確認し `/slides` を再送|
+|docs/site/が更新されない|権限を Read & write に設定し `/site` を再送|
+|画像が生成されない|ImageMagick エラーをログで確認し `/thumb` を再送|
+
+### DIFF-5
+- ワークフローは1ファイル1責務
+- 外部APIに頼らずローカル変換
+- 権限不足時は設定を明示
+- 生成物はPRブランチへコミット
+- ChatOpsはOWNER/MEMBERのみ実行可能

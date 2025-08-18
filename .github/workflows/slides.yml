@@ -1,0 +1,85 @@
+name: slides
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number"
+        required: true
+        type: number
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+jobs:
+  build:
+    if: >
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER') &&
+       startsWith(github.event.comment.body, '/slides')) ||
+      (github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.eventName === 'workflow_dispatch'
+              ? Number(core.getInput('pr'))
+              : context.payload.issue.number;
+            const {data: pr} = await github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: prNumber });
+            core.setOutput('number', prNumber);
+            core.setOutput('branch', pr.head.ref);
+            core.setOutput('title', pr.title ?? 'Slides');
+
+      - run: |
+          git fetch origin "${{ steps.pr.outputs.branch }}"
+          git checkout "${{ steps.pr.outputs.branch }}"
+
+      - id: src
+        run: |
+          set -e
+          if   [ -f "PRFAQ_1pager.md" ]; then SRC="PRFAQ_1pager.md";
+          elif [ -f "next_actions_v1.md" ]; then SRC="next_actions_v1.md";
+          else echo "No PRFAQ_1pager.md or next_actions_v1.md"; exit 1; fi
+          {
+            echo '---'
+            echo 'marp: true'
+            echo 'paginate: true'
+            echo 'size: 16:9'
+            echo "title: ${{ steps.pr.outputs.title }}"
+            echo '---'
+            awk '{ if ($0 ~ /^##[[:space:]]+/) {print "\n---"; print $0} else {print $0} }' "$SRC"
+          } > slides.md
+          echo "source=slides.md" >> $GITHUB_OUTPUT
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm i -g @marp-team/marp-cli
+
+      - run: |
+          marp --pdf slides.md -o slides.pdf
+          marp --html slides.md -o slides.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slides-pr-${{ steps.pr.outputs.number }}
+          path: |
+            slides.md
+            slides.pdf
+            slides.html
+          retention-days: 14
+
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: Number("${{ steps.pr.outputs.number }}"),
+              body: "🎞️ **Slides generated** → Actions → Artifacts を確認してください。"
+            });

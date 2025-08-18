@@ -1,0 +1,37 @@
+name: go-kill
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  pull-requests: write
+  issues: write
+jobs:
+  act:
+    if: >
+      github.event.issue.pull_request != null &&
+      (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER') &&
+      (startsWith(github.event.comment.body, '/go') || startsWith(github.event.comment.body, '/kill'))
+    runs-on: ubuntu-latest
+    steps:
+      - id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const n = context.payload.issue.number;
+            core.setOutput('n', String(n));
+
+      - if: startsWith(github.event.comment.body, '/go')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const n = Number("${{ steps.pr.outputs.n }}");
+            await github.rest.pulls.update({ owner: context.repo.owner, repo: context.repo.repo, pull_number: n, draft: false });
+            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: n, body: "✅ Draft解除（/go）" });
+
+      - if: startsWith(github.event.comment.body, '/kill')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const n = Number("${{ steps.pr.outputs.n }}");
+            await github.rest.pulls.update({ owner: context.repo.owner, repo: context.repo.repo, pull_number: n, state: 'closed' });
+            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: n, body: "🛑 PRをクローズ（/kill）" });

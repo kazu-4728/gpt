@@ -1,0 +1,16 @@
+agent:
+  - 'TASTE.md'
+  - 'PRFAQ_1pager*.md'
+  - 'DECISION_MEMO.md'
+  - 'next_actions_v1.md'
+
+slides:
+  - 'slides.md'
+  - 'slides.*'
+
+docs:
+  - 'docs/**'
+  - '**/*.md'
+
+ci:
+  - '.github/workflows/**'

@@ -1,0 +1,14 @@
+name: pr-gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: pr-gate-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: true
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "PR gate passed $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
