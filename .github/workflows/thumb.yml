@@ -1,0 +1,43 @@
+name: thumb
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: write
+jobs:
+  build:
+    if: github.event.issue.pull_request != null &&
+        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER') &&
+        contains(github.event.comment.body, '/thumb')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.event.issue.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.issue.pull_request.head.ref }}
+      - run: sudo apt-get update && sudo apt-get install -y imagemagick
+      - name: Generate images
+        run: |
+          mkdir -p public/og public/thumb
+          for f in content/*.md; do
+            b=$(basename "$f" .md)
+            title=$(head -n 1 "$f" | sed 's/^# *//')
+            convert -size 1200x630 -background '#ffffff' -fill '#000000' -gravity center -font DejaVu-Sans -pointsize 72 caption:"$title" "public/og/$b.png"
+            for s in 256 512 1024; do
+              convert "public/og/$b.png" -resize ${s}x${s} "public/thumb/$b-${s}.webp"
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thumbs
+          path: |
+            public/og
+            public/thumb
+      - name: Commit images
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add public/og public/thumb
+          git commit -m "chore: update thumbnails" || echo "no changes"
+          git push
