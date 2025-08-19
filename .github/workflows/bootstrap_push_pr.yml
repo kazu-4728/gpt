@@ -1,0 +1,28 @@
+name: bootstrap-push-pr
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create empty commit
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git commit --allow-empty -m "chore: bootstrap universal agent v2"
+      - name: Create draft PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: auto/universal-agent-v2
+          base: main
+          title: "Universal agent v2"
+          body: "Draft PR for universal agent v2"
+          draft: true
+          commit-message: "chore: bootstrap universal agent v2"
+          delete-branch: true
