@@ -1,0 +1,15 @@
+name: ci-test
+on: [pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: 'pip' }
+      - run: |
+          if [ -f "requirements-test.txt" ]; then pip install -r requirements-test.txt; fi
+          pip install pytest
+          if compgen -G "tests/test_*.py" > /dev/null; then pytest -q; else echo "No tests - skip"; fi

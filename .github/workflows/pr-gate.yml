@@ -4,8 +4,11 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 permissions:
   contents: read
+concurrency:
+  group: pr-gate-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: true
 jobs:
-  noop:
+  gate:
     runs-on: ubuntu-latest
     steps:
-      - run: echo pr-gate
+      - run: echo "ok"

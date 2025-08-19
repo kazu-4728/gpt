@@ -1,15 +1,5 @@
-# OS-specific files
-.DS_Store
-Thumbs.db
-Desktop.ini
-
-# Editor directories and files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Archives
-*.tar.gz
-
+node_modules/
+.cache/
+__pycache__/
+*.log
+*.DS_Store
