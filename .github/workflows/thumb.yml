@@ -4,40 +4,91 @@ on:
     types: [created]
 permissions:
   contents: write
+  pull-requests: write
+  issues: write
+concurrency:
+  group: thumb-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
 jobs:
   build:
-    if: github.event.issue.pull_request != null &&
-        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER') &&
-        contains(github.event.comment.body, '/thumb')
+    if: >
+      github.event.issue.pull_request != null &&
+      (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER') &&
+      startsWith(github.event.comment.body, '/thumb')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Resolve PR context & target
+        id: ctx
+        uses: actions/github-script@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.event.issue.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.issue.pull_request.head.ref }}
-      - run: sudo apt-get update && sudo apt-get install -y imagemagick
-      - name: Generate images
+          script: |
+            const prNumber = context.payload.issue.number;
+            const branch = context.payload.issue.pull_request.head.ref;
+            const arg = (context.payload.comment.body || "").replace(/^\/thumb\s*/,'').trim() || 'content/hello.md';
+            core.setOutput('number', String(prNumber));
+            core.setOutput('branch', branch);
+            core.setOutput('target', arg);
+
+      - run: |
+          git fetch origin "${{ steps.ctx.outputs.branch }}"
+          git checkout "${{ steps.ctx.outputs.branch }}"
+
+      - uses: ./.github/actions/common-setup
+        with: { apt: "true" }
+
+      - name: Derive title
+        id: title
         run: |
+          set -e
+          T="${{ steps.ctx.outputs.target }}"
+          if [ -f "$T" ]; then
+            TITLE=$(grep -m1 -E '^(#|title:)' "$T" | sed -E 's/^#\s*|^title:\s*//')
+            [ -z "$TITLE" ] && TITLE=$(basename "$T" .md)
+          else
+            TITLE=$(basename "$T")
+          fi
+          echo "value=$TITLE" >> $GITHUB_OUTPUT
+
+      - name: Render thumbnails (ImageMagick)
+        run: |
+          set -e
+          slug=$(basename "${{ steps.ctx.outputs.target }}" | sed -E 's/\.[^.]+$//')
           mkdir -p public/og public/thumb
-          for f in content/*.md; do
-            b=$(basename "$f" .md)
-            title=$(head -n 1 "$f" | sed 's/^# *//')
-            convert -size 1200x630 -background '#ffffff' -fill '#000000' -gravity center -font DejaVu-Sans -pointsize 72 caption:"$title" "public/og/$b.png"
-            for s in 256 512 1024; do
-              convert "public/og/$b.png" -resize ${s}x${s} "public/thumb/$b-${s}.webp"
-            done
+          convert -size 1200x630 xc:white -gravity center -pointsize 64 -annotate 0 "${{ steps.title.outputs.value }}" "public/og/$slug.png"
+          for s in 256 512 1024; do
+            convert "public/og/$slug.png" -resize ${s}x${s} "public/thumb/$slug-$s.webp"
           done
+
+      - name: Commit images
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          git add public/og public/thumb
+          if git diff --cached --quiet; then
+            echo "No image changes."
+          else
+            git commit -m "thumb: generate OG/thumb for ${{ steps.ctx.outputs.target }}"
+            git push origin "${{ steps.ctx.outputs.branch }}"
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
-          name: thumbs
+          name: thumb-pr-${{ steps.ctx.outputs.number }}
           path: |
-            public/og
-            public/thumb
-      - name: Commit images
-        run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add public/og public/thumb
-          git commit -m "chore: update thumbnails" || echo "no changes"
-          git push
+            public/og/*.png
+            public/thumb/*.webp
+
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: Number("${{ steps.ctx.outputs.number }}"),
+              body: "🖼️ Thumbnails generated → ブランチの public/ を確認してください。"
+            });

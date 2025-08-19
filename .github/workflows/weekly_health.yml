@@ -1,0 +1,24 @@
+name: weekly-health
+on:
+  schedule: [{ cron: "0 1 * * 1" }]  # 月曜 10:00JST
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report actions permissions (summary)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            let perms = {};
+            try {
+              const r = await github.request('GET /repos/{owner}/{repo}/actions/permissions', { owner, repo });
+              perms = r.data;
+            } catch (e) { perms = { error: e.message }; }
+            core.summary.addHeading('Actions Permissions');
+            core.summary.addCodeBlock(JSON.stringify(perms, null, 2));
+            await core.summary.write();

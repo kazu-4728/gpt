@@ -4,30 +4,82 @@ on:
     types: [created]
 permissions:
   contents: write
+  pull-requests: write
+  issues: write
+concurrency:
+  group: site-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
 jobs:
   build:
-    if: github.event.issue.pull_request != null &&
-        (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER') &&
-        contains(github.event.comment.body, '/site')
+    if: >
+      github.event.issue.pull_request != null &&
+      (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER') &&
+      startsWith(github.event.comment.body, '/site')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Resolve PR context
+        id: ctx
+        uses: actions/github-script@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.event.issue.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.issue.pull_request.head.ref }}
-      - run: sudo apt-get update && sudo apt-get install -y pandoc
-      - name: Build site
+          script: |
+            const prNumber = context.payload.issue.number;
+            const {data: pr} = await github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: prNumber });
+            core.setOutput('number', String(prNumber));
+            core.setOutput('branch', pr.head.ref);
+
+      - run: |
+          git fetch origin "${{ steps.ctx.outputs.branch }}"
+          git checkout "${{ steps.ctx.outputs.branch }}"
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: 'pip' }
+
+      - uses: ./.github/actions/common-setup
+        with: { pip: "true" }
+
+      - name: Ensure minimal content
+        run: |
+          mkdir -p content
+          [ -f content/hello.md ] || printf "# Hello\n最小サンプルです。\n" > content/hello.md
+
+      - name: Build site (MkDocs)
+        run: |
+          echo "site_name: Repo Site" > mkdocs.yml
+          echo "nav:" >> mkdocs.yml
+          find content -name "*.md" -maxdepth 2 | sed 's|.*/||;s|.md$||' | awk '{print "  - "$0": content/"$0"".md"}' >> mkdocs.yml
+          mkdocs build -d public_site
+
+      - name: Commit to docs/site
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
           mkdir -p docs/site
-          for f in content/*.md; do
-            b=$(basename "$f" .md)
-            pandoc "$f" -o "docs/site/$b.html"
-          done
-      - name: Commit site
-        run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+          rsync -a --delete public_site/ docs/site/
           git add docs/site
-          git commit -m "chore: update site" || echo "no changes"
-          git push
+          if git diff --cached --quiet; then
+            echo "No site changes."
+          else
+            git commit -m "site: build docs/site"
+            git push origin "${{ steps.ctx.outputs.branch }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-pr-${{ steps.ctx.outputs.number }}
+          path: public_site
+          retention-days: 7
+
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: Number("${{ steps.ctx.outputs.number }}"),
+              body: "🌐 Site built → ブランチの docs/site/ を確認してください。"
+            });

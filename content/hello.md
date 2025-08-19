@@ -1,3 +1,2 @@
 # Hello
-
-This is sample content.
+最小サンプルです。`/site` で静的サイトを生成します。

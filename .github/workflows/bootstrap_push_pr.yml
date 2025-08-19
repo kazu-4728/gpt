@@ -1,0 +1,37 @@
+name: bootstrap-push-pr
+on:
+  workflow_dispatch:
+    inputs:
+      branch: { description: "新規ブランジ名", required: true, default: "auto/rebuild-v1" }
+      title:  { description: "PRタイトル",       required: true, default: "Rebuild: minimal agent" }
+      body:   { description: "PR本文",           required: false, default: "Seed & draft PR" }
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Create branch
+        run: git switch -c "${{ github.event.inputs.branch }}"
+      - name: Seed minimal files
+        run: |
+          mkdir -p content
+          [ -f content/hello.md ] || printf "# Hello\n最小サンプルです。\n" > content/hello.md
+      - name: Commit & push
+        run: |
+          git add -A
+          git commit -m "bootstrap: seed" || echo "No changes"
+          git push -u origin "${{ github.event.inputs.branch }}"
+      - name: Create draft PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {data: pr} = await github.rest.pulls.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              head: core.getInput('branch'), base: 'main',
+              title: core.getInput('title'), body: core.getInput('body'), draft: true
+            });
+            core.notice(`PR #${pr.number}: ${pr.html_url}`);
